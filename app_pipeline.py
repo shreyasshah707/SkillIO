@@ -1,100 +1,178 @@
+import sys
+import re
 import os
-from transformers import pipeline, AutoModelForTokenClassification, AutoTokenizer
+import fitz
+import json
+import torch
+from datetime import datetime
 from sentence_transformers import SentenceTransformer, util
-
-# ==========================================
-# SETUP & MODEL LOADING (CLOUD VERSION)
-# ==========================================
-print("Loading Models from Hugging Face Hub...")
-
-# Replace 'your-username' with your actual HF username!
-repo_id = "shreyasshah707/skill-extractor" 
-
-# Notice we don't need local paths anymore!
-tokenizer = AutoTokenizer.from_pretrained(repo_id)
-model = AutoModelForTokenClassification.from_pretrained(repo_id)
-
-extractor = pipeline(
-    "ner", 
-    model=model, 
-    tokenizer=tokenizer, 
-    aggregation_strategy="simple"
+from transformers import (
+    pipeline,
+    AutoTokenizer,
+    AutoModelForTokenClassification,
 )
 
-# Phase 2 stays exactly the same...
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+#Configurations and Constants
+HF_NER_MODEL = "shreyasshah707/skill-extractor"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+NER_CONFIDENCE_THRESHOLD = 0.20
+MATCH_THRESHOLD_PCT = 55.0
 
-# Load Phase 2: The Semantic Matcher (Embedding Model)
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+STOP_WORDS = {"and", "to", "the", "of", "in", "a", "with", "for", "on", "an", "at", "by"}
+HIJACKER_WORDS = {"learning", "computing", "science", "technology", "platform", "context", "skills"}
+PDF_NOISE = {"table", "figure", "page", "unit", "box", "chart", "module", "level"}
 
-# ==========================================
-# INPUT DATA
-# ==========================================
-print("\nReading Syllabus...")
-# ... (The rest of your script from here down remains exactly the same) ...
+ROLE_MAP = {
+    "1": {"role": "Data Scientist", "skills": ["Python", "SQL", "Machine Learning", "Data Visualization", "Statistics", "Communication"]},
+    "2": {"role": "Machine Learning Engineer", "skills": ["Python", "Deep Learning", "Docker", "Machine Learning", "Mathematics", "Model Deployment"]},
+    "3": {"role": "Cloud Architect", "skills": ["Cloud Computing", "AWS", "Azure", "Docker", "Kubernetes", "Linux", "Networking"]},
+    "4": {"role": "Custom Role", "skills": []}
+}
 
-try:
-    with open("syllabus.txt", "r", encoding="utf-8") as f:
-        syllabus_text = f.read()
-except FileNotFoundError:
-    print("Error: syllabus.txt not found! Using default test text instead.")
-    syllabus_text = "The candidate will learn Python for logic development, machine learning, and data science basics. They must communicate effectively."
+#Core Functions
 
-# Let's say the student applies for a "Junior Data Scientist" role
-job_requirements = [
-    "Python", 
-    "Machine Learning", 
-    "Cloud Computing", 
-    "Data Science",
-    "Team Leadership"
-]
+def load_models():
+    print("\n[1/4] Initializing AI Brain (Loading Models)...")
+    tokenizer = AutoTokenizer.from_pretrained(HF_NER_MODEL)
+    model = AutoModelForTokenClassification.from_pretrained(HF_NER_MODEL)
+    ner_pipe = pipeline(task="ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")
+    embedder = SentenceTransformer(EMBEDDING_MODEL)
+    return ner_pipe, embedder
 
-# ==========================================
-# PHASE 1: EXTRACT SKILLS FROM SYLLABUS
-# ==========================================
-print("\n--- Phase 1: Extracting Skills ---")
-ner_results = extractor(syllabus_text)
-extracted_skills = []
+def extract_text(pdf_path):
+    print(f"[2/4] Reading Syllabus: {pdf_path}...")
+    doc = fitz.open(pdf_path)
+    text = "\n".join([page.get_text("text") for page in doc])
+    doc.close()
+    return re.sub(r"\s{3,}", "  ", text).strip()
 
-if ner_results:
-    for entity in ner_results:
-        # Filter for SKILL tags and drop low-confidence guesses
-        if entity["entity_group"] == "SKILL" and entity["score"] > 0.50:
-            extracted_skills.append(entity["word"].strip().title())
+def get_skills_from_ner(text, ner_pipeline):
+    sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
+    chunks, buf = [], ""
+    for s in sentences:
+        if len(buf) + len(s) < 500: buf += " " + s
+        else:
+            chunks.append(buf.strip()); buf = s
+    chunks.append(buf.strip())
 
-# Remove duplicates
-unique_student_skills = list(set(extracted_skills))
-print(f"Extracted {len(unique_student_skills)} raw skills from syllabus.")
-for skill in unique_student_skills:
-    print(f"  - {skill}")
-
-# ==========================================
-# PHASE 2: SEMANTIC MATCHING
-# ==========================================
-print("\n--- Phase 2: Matching Against Job Requirements ---")
-MATCH_THRESHOLD = 60.0 # Our magic number to decide if a skill is a valid match
-
-# Convert the student's messy skills into Math (Vector Embeddings) once
-student_embeddings = embedder.encode(unique_student_skills, convert_to_tensor=True)
-
-for req in job_requirements:
-    # Convert the job requirement into Math
-    req_embedding = embedder.encode(req, convert_to_tensor=True)
+    raw_ents = []
+    for chunk in chunks:
+        if chunk: raw_ents.extend(ner_pipeline(chunk))
     
-    # Compare this one requirement against ALL student skills
-    cosine_scores = util.cos_sim(req_embedding, student_embeddings)[0]
+    final_skills = set()
+    for ent in raw_ents:
+        if ent.get("score", 0.0) < NER_CONFIDENCE_THRESHOLD: continue
+        clean_text = re.sub(r'[^a-zA-Z0-9\s\+]', '', ent.get("word", "").title()).strip()
+        words = clean_text.split()
+        if not words or any(w.lower() in PDF_NOISE for w in words): continue
+        
+        if len(words) <= 3:
+            if words[0].lower() not in STOP_WORDS and clean_text.lower() not in HIJACKER_WORDS:
+                final_skills.add(clean_text)
+        else:
+            for i in range(len(words)-1):
+                if words[i].lower() not in STOP_WORDS and words[i+1].lower() not in STOP_WORDS:
+                    final_skills.add(f"{words[i]} {words[i+1]}")
+    return sorted(list(final_skills))
+
+def match_skills(target_skills, extracted_skills, embedder):
+    if not extracted_skills: return []
+    student_embeddings = embedder.encode(extracted_skills, convert_to_tensor=True)
+    results = []
+    for req in target_skills:
+        req_emb = embedder.encode(req, convert_to_tensor=True)
+        scores = util.cos_sim(req_emb, student_embeddings)[0]
+        best_idx = scores.argmax()
+        score = scores[best_idx].item() * 100
+        results.append({"requirement": req, "best_match": extracted_skills[best_idx], "score": round(score, 2)})
+    return results
+
+#Data export function
+
+def save_results_to_json(results, role_name, pdf_path):
+    output_file = "report.json"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Find the highest matching score
-    best_score_idx = cosine_scores.argmax()
-    best_score = cosine_scores[best_score_idx].item() * 100
-    best_matching_skill = unique_student_skills[best_score_idx]
+    # Prepare the data object
+    report_data = {
+        "metadata": {
+            "timestamp": timestamp,
+            "role": role_name,
+            "source_file": pdf_path
+        },
+        "results": results,
+        "summary": {
+            "total_requirements": len(results),
+            "met": sum(1 for r in results if r['score'] >= MATCH_THRESHOLD_PCT)
+        }
+    }
+
+    # If file exists, append; otherwise, create a list
+    all_reports = []
+    if os.path.exists(output_file):
+        with open(output_file, 'r') as f:
+            try:
+                all_reports = json.load(f)
+                if not isinstance(all_reports, list): all_reports = [all_reports]
+            except:
+                all_reports = []
     
-    # Output the result
-    if best_score >= MATCH_THRESHOLD:
-        print(f"✅ QUALIFIED   | Req: {req:<16} | Matched with: '{best_matching_skill}' ({best_score:.1f}%)")
+    all_reports.append(report_data)
+
+    with open(output_file, 'w') as f:
+        json.dump(all_reports, f, indent=4)
+    print(f"\n Data successfully archived to {output_file}")
+
+# ── 4. INTERACTIVE MAIN ───────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    print("\n" + "="*50)
+    print("      WELCOME TO SKILLIO: ASPIRATION ENGINE")
+    print("="*50)
+
+    pdf_input = input("\n Enter path to Syllabus PDF: ").strip()
+    if not os.path.exists(pdf_input):
+        print(" Error: File not found."); sys.exit()
+
+    print("\n Select target role:")
+    for k, v in ROLE_MAP.items(): print(f"  {k}. {v['role']}")
+    
+    choice = input("\nSelect (1-4): ").strip()
+    if choice == "4":
+        custom = input("Enter skills (comma separated): ")
+        target_skills = [s.strip() for s in custom.split(",")]
+        role_name = "Custom Career"
+    elif choice in ROLE_MAP:
+        target_skills = ROLE_MAP[choice]["skills"]
+        role_name = ROLE_MAP[choice]["role"]
     else:
-        print(f"❌ SKILL GAP   | Req: {req:<16} | Closest was : '{best_matching_skill}' ({best_score:.1f}%)")
+        print(" Error: Invalid selection."); sys.exit()
 
-print("\n==========================================")
-print("Pipeline Execution Complete.")
-print("==========================================")
+    ner_pipe, embedder = load_models()
+    full_text = extract_text(pdf_input)
+    print("[3/4] Extracting curriculum skills...")
+    extracted = get_skills_from_ner(full_text, ner_pipe)
+    
+    print(f"[4/4] Comparing against {role_name}...")
+    results = match_skills(target_skills, extracted, embedder)
+
+    # Print Report
+    print("\n" + "="*70)
+    print(f"  REPORT: {role_name}")
+    print("="*70)
+    print(f"{'REQUIRED':<20} | {'BEST MATCH':<25} | {'SCORE'}")
+    print("-" * 70)
+    
+    qualified = 0
+    for r in results:
+        passed = r['score'] >= MATCH_THRESHOLD_PCT
+        if passed: qualified += 1
+        indicator = "✅" if passed else "❌"
+        print(f"{r['requirement']:<20} | {r['best_match'][:24]:<25} | {r['score']:>5.1f}% {indicator}")
+
+    print("-" * 70)
+    print(f"READINESS: {qualified}/{len(target_skills)} ({round(qualified/len(target_skills)*100, 1)}%)")
+    
+    # SAVE TO JSON
+    save_results_to_json(results, role_name, pdf_input)
+    print("="*70 + "\n")
