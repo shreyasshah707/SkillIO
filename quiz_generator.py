@@ -12,27 +12,20 @@ from google.genai import types
 import os
 from dotenv import load_dotenv
 
-# Load variables from the .env file
 load_dotenv()
 
-# Safely fetch the API key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY is missing! Check your .env file.")
+    raise ValueError(" GEMINI_API_KEY is missing! Check your .env file.")
 
-# ── 1. CONFIGURATION ──────────────────────────────────────────────────────────
 INPUT_FILE = "recommendations.json"
 QUIZ_FILE = "weekly_quiz.json"
-TOTAL_QUESTIONS = 10  # Questions per weekly test
-
-# Replace with your actual API key
+TOTAL_QUESTIONS = 10  
+y
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 
-# Initialize the new modern client
 client = genai.Client(api_key=GEMINI_API_KEY)
-
-# ── 2. RESOURCE READERS (WEB & VIDEO SCRAPERS) ────────────────────────────────
 
 def scrape_article_text(url):
     """Visits the recommended article and extracts the text."""
@@ -60,8 +53,6 @@ def get_youtube_transcript(video_url):
     except Exception:
         return None
 
-# ── 3. BATCH QUIZ GENERATION LOGIC ────────────────────────────────────────────
-
 def generate_flashcard_batch(skill, freemium_resources, count):
     """Generates an array of questions based on the selected material."""
     
@@ -69,20 +60,18 @@ def generate_flashcard_batch(skill, freemium_resources, count):
     context_text = None
     source_url = ""
 
-    # Try scraping the chosen source
     if source_choice == "video":
         source_url = freemium_resources["youtube_video"]
-        print(f"    [📺 Gemini is 'watching' the YouTube video for {skill} ({count} Qs)...]")
+        print(f"    [ Gemini is 'watching' the YouTube video for {skill} ({count} Qs)...]")
         context_text = get_youtube_transcript(source_url)
         if not context_text:
             source_choice = "article"
 
     if source_choice == "article":
         source_url = freemium_resources["article"]
-        print(f"    [📖 Gemini is reading the Dev.to article for {skill} ({count} Qs)...]")
+        print(f"    [Gemini is reading the Dev.to article for {skill} ({count} Qs)...]")
         context_text = scrape_article_text(source_url)
 
-    # Build the Batch Prompt for Gemini
     if context_text:
         prompt = f"""
         You are an expert technical tutor. Based strictly on the following text, generate {count} short, thoughtful technical interview questions about {skill}.
@@ -100,7 +89,7 @@ def generate_flashcard_batch(skill, freemium_resources, count):
         }}
         """
     else:
-        print(f"    [⚠️ Scrapers failed. Using Gemini's baseline knowledge for {skill}...]")
+        print(f"    [ Scrapers failed. Using Gemini's baseline knowledge for {skill}...]")
         source_url = "General Knowledge"
         prompt = f"""
         You are an expert technical tutor. Generate {count} short, technical interview questions to test a beginner's knowledge of {skill}. Provide brief, accurate answers.
@@ -116,7 +105,6 @@ def generate_flashcard_batch(skill, freemium_resources, count):
         }}
         """
 
-    # Call Gemini API using the new modern SDK
     generated_cards = []
     try:
         response = client.models.generate_content(
@@ -128,7 +116,6 @@ def generate_flashcard_batch(skill, freemium_resources, count):
         )
         ai_data = json.loads(response.text)
         
-        # Format the output to match our app's required schema
         for item in ai_data.get("flashcards", []):
             generated_cards.append({
                 "skill": skill,
@@ -138,15 +125,13 @@ def generate_flashcard_batch(skill, freemium_resources, count):
                 "correct_answer": item.get("correct_answer", "Error generating answer.")
             })
     except Exception as e:
-        print(f"    [❌ Gemini API Error: {e}]")
+        print(f"    [Gemini API Error: {e}]")
         
     return generated_cards
 
-# ── 4. INTERACTIVE CLI MENU ───────────────────────────────────────────────────
-
 def create_weekly_quiz():
     if not os.path.exists(INPUT_FILE):
-        print(f"❌ Error: {INPUT_FILE} not found. Run recommendation_engine.py first.")
+        print(f" Error: {INPUT_FILE} not found. Run recommendation_engine.py first.")
         return
 
     with open(INPUT_FILE, "r") as f:
@@ -157,9 +142,8 @@ def create_weekly_quiz():
         print("No skill gaps found to test!")
         return
 
-    # INTERACTIVE MENU
     print("\n" + "="*50)
-    print("🎓 SKILLIO WEEKLY QUIZ GENERATOR")
+    print(" SKILLIO WEEKLY QUIZ GENERATOR")
     print("="*50)
     print("Which skill gaps would you like to be tested on today?")
     
@@ -178,7 +162,7 @@ def create_weekly_quiz():
         selected_modules = [learning_modules[i] for i in selected_indices if 0 <= i < len(learning_modules)]
 
     if not selected_modules:
-        print("❌ Invalid selection. Exiting.")
+        print("Invalid selection. Exiting.")
         return
 
     # Calculate how many questions to assign to each chosen skill
@@ -186,7 +170,7 @@ def create_weekly_quiz():
     remainder = TOTAL_QUESTIONS % len(selected_modules)
 
     print(f"\n[PHASE 3] Generating {TOTAL_QUESTIONS} Context-Aware Questions via Gemini...")
-    print("🤖 Building RAG Knowledge Base...\n")
+    print(" Building RAG Knowledge Base...\n")
 
     quiz_data = {
         "metadata": {
@@ -201,8 +185,7 @@ def create_weekly_quiz():
     for idx, module in enumerate(selected_modules):
         skill = module["skill"]
         freemium_resources = module["freemium_resources"]
-        
-        # Distribute the remainder questions to the first few skills if uneven
+    
         q_count = base_count + (1 if idx < remainder else 0)
         
         if q_count == 0:
@@ -213,14 +196,14 @@ def create_weekly_quiz():
         
         for card in batch:
             quiz_data["flashcards"].append(card)
-            print(f"  ❓ Q: {card['question']}")
-            print(f"  💡 A: {card['correct_answer']}\n")
+            print(f"   Q: {card['question']}")
+            print(f"   A: {card['correct_answer']}\n")
 
     with open(QUIZ_FILE, "w") as f:
         json.dump(quiz_data, f, indent=4)
     
     print("="*75)
-    print(f"✅ Gemini RAG Quiz successfully saved to {QUIZ_FILE}")
+    print(f"Gemini RAG Quiz successfully saved to {QUIZ_FILE}")
     print("="*75)
 
 if __name__ == "__main__":

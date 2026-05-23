@@ -8,30 +8,23 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 
-# Load variables from the .env file
 load_dotenv()
 
-# Safely fetch the API key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Safely fetch the YouTube API key
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 if not YOUTUBE_API_KEY:
-    raise ValueError("❌ YOUTUBE_API_KEY is missing! Check your .env file.")
-# ── 1. CONFIGURATION ──────────────────────────────────────────────────────────
+    raise ValueError(" YOUTUBE_API_KEY is missing! Check your .env file.")
 REPORT_FILE = "report.json"
 OUTPUT_FILE = "recommendations.json"
 PASS_THRESHOLD = 55.0
 
-# 🔑 Add your YouTube API Key here (Keep the quotes!)
 YOUTUBE_API_KEY = "" 
-
-# ── 2. RESOURCE GENERATOR FUNCTIONS (API DRIVEN) ──────────────────────────────
 
 def get_top_youtube_video(skill):
     """Fetches the #1 most relevant English YouTube tutorial using the Data API."""
-    # Enclosing the skill in quotes forces YouTube to match the exact topic
+    
     search_query = f'"{skill}" tutorial for beginners'
     encoded_query = urllib.parse.quote(search_query)
     fallback_url = f"https://www.youtube.com/results?search_query={encoded_query}"
@@ -53,9 +46,8 @@ def get_top_youtube_video(skill):
             if data.get("items"):
                 video_id = data["items"][0]["id"]["videoId"]
                 video_title = data["items"][0]["snippet"]["title"].replace("&quot;", "'").replace("&#39;", "'")
-                # Clean up HTML entities for a cleaner terminal output
                 video_title = re.sub(r'&[a-zA-Z]+;', '', video_title) 
-                print(f"    ├─ 🎯 YT API Found : '{video_title[:40]}...'")
+                print(f"    ├─  YT API Found : '{video_title[:40]}...'")
                 return f"https://www.youtube.com/watch?v={video_id}"
     except Exception:
         pass 
@@ -76,7 +68,7 @@ def get_top_coursera_course(skill):
             if data.get("elements") and len(data["elements"]) > 0:
                 slug = data["elements"][0]["slug"]
                 course_name = data["elements"][0]["name"]
-                print(f"    ├─ 🎓 Coursera API : '{course_name[:40]}...'")
+                print(f"    ├─  Coursera API : '{course_name[:40]}...'")
                 return f"https://www.coursera.org/learn/{slug}"
     except Exception:
         pass
@@ -85,11 +77,9 @@ def get_top_coursera_course(skill):
 
 def get_top_dev_article(skill):
     """Fetches the top technical article using the Dev.to API (via Tag search)."""
-    # Dev.to uses tags (e.g., 'machinelearning' instead of 'Machine Learning')
     tag = skill.lower().replace(" ", "").replace("/", "").replace("-", "")
     fallback_url = f"https://dev.to/search?q={urllib.parse.quote(skill)}"
     
-    # Dev.to public endpoint using 'tag' instead of 'q'
     api_url = f"https://dev.to/api/articles?tag={tag}&per_page=1"
     
     try:
@@ -99,7 +89,7 @@ def get_top_dev_article(skill):
             if data and len(data) > 0:
                 article_url = data[0]["url"]
                 article_title = data[0]["title"]
-                print(f"    ├─ 📖 Dev.to API   : '{article_title[:40]}...'")
+                print(f"    ├─  Dev.to API   : '{article_title[:40]}...'")
                 return article_url
     except Exception:
         pass
@@ -111,11 +101,9 @@ def generate_udemy_link(skill):
     query = urllib.parse.quote(skill)
     return f"https://www.udemy.com/courses/search/?src=ukw&q={query}"
 
-# ── 3. CORE LOGIC ─────────────────────────────────────────────────────────────
-
 def generate_recommendations():
     if not os.path.exists(REPORT_FILE):
-        print(f"❌ Error: {REPORT_FILE} not found. Run app_pipeline.py first.")
+        print(f" Error: {REPORT_FILE} not found. Run app_pipeline.py first.")
         return
 
     with open(REPORT_FILE, "r") as f:
@@ -128,7 +116,7 @@ def generate_recommendations():
     skill_gaps = [r["requirement"] for r in results if r["score"] < PASS_THRESHOLD]
     
     if not skill_gaps:
-        print(f"🎉 Wow! You have 100% readiness for {role}. No gaps found!")
+        print(f" Wow! You have 100% readiness for {role}. No gaps found!")
         return
 
     print(f"\n[PHASE 2] Generating API-Driven Recommendations for '{role}'...")
@@ -147,7 +135,7 @@ def generate_recommendations():
     print("="*80)
 
     for skill in skill_gaps:
-        print(f"\n 🛑 SKILL GAP: {skill.upper()}")
+        print(f"\n  SKILL GAP: {skill.upper()}")
         
         module = {
             "skill": skill,
@@ -166,7 +154,7 @@ def generate_recommendations():
         json.dump(recommendation_data, f, indent=4)
     
     print("\n" + "="*80)
-    print(f"💾 Recommendations successfully saved to {OUTPUT_FILE}")
+    print(f"Recommendations successfully saved to {OUTPUT_FILE}")
     print("="*80 + "\n")
 
 if __name__ == "__main__":

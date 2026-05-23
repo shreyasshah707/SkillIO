@@ -34,7 +34,7 @@ The pipeline is split into three distinct, modular phases:
 
 * **Language:** Python 3.x
 * **AI & NLP:** Google GenAI SDK (Gemini 2.5 Flash), Hugging Face (`sentence-transformers`), PyTorch
-* **Data Extraction:** `BeautifulSoup4`, `youtube-transcript-api`, `PyPDF2` / `pdfplumber`
+* **Data Extraction:** `BeautifulSoup4`, `youtube-transcript-api`, `PyPDF2`
 * **APIs:** YouTube Data API v3, Forem (Dev.to) API
 * **Environment Management:** `python-dotenv`
 
