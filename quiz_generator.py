@@ -22,7 +22,7 @@ if not GEMINI_API_KEY:
 INPUT_FILE = "recommendations.json"
 QUIZ_FILE = "weekly_quiz.json"
 TOTAL_QUESTIONS = 10  
-y
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -165,7 +165,6 @@ def create_weekly_quiz():
         print("Invalid selection. Exiting.")
         return
 
-    # Calculate how many questions to assign to each chosen skill
     base_count = TOTAL_QUESTIONS // len(selected_modules)
     remainder = TOTAL_QUESTIONS % len(selected_modules)
 
