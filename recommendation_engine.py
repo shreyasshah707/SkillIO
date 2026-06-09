@@ -4,35 +4,30 @@ import urllib.parse
 import urllib.request
 import re
 from datetime import datetime
-
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 if not YOUTUBE_API_KEY:
     raise ValueError(" YOUTUBE_API_KEY is missing! Check your .env file.")
+
 REPORT_FILE = "report.json"
 OUTPUT_FILE = "recommendations.json"
 PASS_THRESHOLD = 55.0
 
-YOUTUBE_API_KEY = "" 
-
 def get_top_youtube_video(skill):
     """Fetches the #1 most relevant English YouTube tutorial using the Data API."""
-    
     search_query = f'"{skill}" tutorial for beginners'
-    encoded_query = urllib.parse.quote(search_query)
+    encoded_query = urllib.parse.quote(f"{skill} tutorial in:name,description")
     fallback_url = f"https://www.youtube.com/results?search_query={encoded_query}"
     
     if YOUTUBE_API_KEY == "YOUR_YOUTUBE_API_KEY_HERE" or not YOUTUBE_API_KEY:
         return fallback_url
 
-    # Added relevanceLanguage=en and removed order=viewCount to prioritize exact English matches
     api_url = (
         f"https://www.googleapis.com/youtube/v3/search?"
         f"part=snippet&q={encoded_query}&type=video"
@@ -51,27 +46,6 @@ def get_top_youtube_video(skill):
                 return f"https://www.youtube.com/watch?v={video_id}"
     except Exception:
         pass 
-        
-    return fallback_url
-
-def get_top_coursera_course(skill):
-    """Fetches the top Coursera course using their public Catalog API."""
-    encoded_query = urllib.parse.quote(skill)
-    fallback_url = f"https://www.coursera.org/search?query={encoded_query}"
-    
-    api_url = f"https://api.coursera.org/api/courses.v1?q=search&query={encoded_query}"
-    
-    try:
-        req = urllib.request.Request(api_url)
-        with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode())
-            if data.get("elements") and len(data["elements"]) > 0:
-                slug = data["elements"][0]["slug"]
-                course_name = data["elements"][0]["name"]
-                print(f"    ├─  Coursera API : '{course_name[:40]}...'")
-                return f"https://www.coursera.org/learn/{slug}"
-    except Exception:
-        pass
         
     return fallback_url
 
@@ -96,6 +70,66 @@ def get_top_dev_article(skill):
         
     return fallback_url
 
+def get_top_coursera_course(skill):
+    """Fetches the top Coursera course using their public Catalog API."""
+    encoded_query = urllib.parse.quote(skill)
+    fallback_url = f"https://www.coursera.org/search?query={encoded_query}"
+    
+    api_url = f"https://api.coursera.org/api/courses.v1?q=search&query={encoded_query}"
+    
+    try:
+        req = urllib.request.Request(api_url)
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            if data.get("elements") and len(data["elements"]) > 0:
+                slug = data["elements"][0]["slug"]
+                course_name = data["elements"][0]["name"]
+                print(f"    ├─  Coursera API : '{course_name[:40]}...'")
+                return f"https://www.coursera.org/learn/{slug}"
+    except Exception:
+        pass
+        
+    return fallback_url
+
+def get_top_github_repositories(skill, count=2):
+    """Queries the GitHub Search API for highly-rated open-source repositories repositories related to the skill gap."""
+    encoded_query = urllib.parse.quote(f"{skill} in:name,description")
+    api_url = f"https://api.github.com/search/repositories?q={encoded_query}&sort=stars&order=desc&per_page={count}"
+    fallback_url = f"https://github.com/search?q={urllib.parse.quote(skill)}"
+    
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "SkillIO-Aspiration-Engine"
+    }
+    
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+        
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            repos = []
+            for item in data.get("items", []):
+                repos.append({
+                    "repo_name": item.get("full_name"),
+                    "repo_url": item.get("html_url"),
+                    "description": item.get("description") or "No description available.",
+                    "stars": item.get("stargazers_count")
+                })
+            if repos:
+                print(f"    ├─  GitHub API   : Found {len(repos)} top repository/repositories")
+                return repos
+    except Exception:
+        pass
+        
+    return [{
+        "repo_name": f"{skill} Projects Search",
+        "repo_url": fallback_url,
+        "description": f"Fallback open-source link for {skill} source code.",
+        "stars": 0
+    }]
+
 def generate_udemy_link(skill):
     """Generates a Udemy search link."""
     query = urllib.parse.quote(skill)
@@ -103,7 +137,7 @@ def generate_udemy_link(skill):
 
 def generate_recommendations():
     if not os.path.exists(REPORT_FILE):
-        print(f" Error: {REPORT_FILE} not found. Run app_pipeline.py first.")
+        print(f"  Error: {REPORT_FILE} not found. Run app_pipeline.py first.")
         return
 
     with open(REPORT_FILE, "r") as f:
@@ -116,7 +150,7 @@ def generate_recommendations():
     skill_gaps = [r["requirement"] for r in results if r["score"] < PASS_THRESHOLD]
     
     if not skill_gaps:
-        print(f" Wow! You have 100% readiness for {role}. No gaps found!")
+        print(f" 🎉 Wow! You have 100% readiness for {role}. No gaps found!")
         return
 
     print(f"\n[PHASE 2] Generating API-Driven Recommendations for '{role}'...")
@@ -131,7 +165,7 @@ def generate_recommendations():
     }
 
     print("\n" + "="*80)
-    print(f"  YOUR PERSONALIZED LEARNING PATH")
+    print(f"   YOUR PERSONALIZED LEARNING PATH")
     print("="*80)
 
     for skill in skill_gaps:
@@ -143,6 +177,7 @@ def generate_recommendations():
                 "youtube_video": get_top_youtube_video(skill),
                 "article": get_top_dev_article(skill)
             },
+            "open_source_projects": get_top_github_repositories(skill, count=2),
             "paid_certifications": {
                 "coursera_course": get_top_coursera_course(skill),
                 "udemy_search": generate_udemy_link(skill)
@@ -150,11 +185,11 @@ def generate_recommendations():
         }
         recommendation_data["learning_modules"].append(module)
 
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(recommendation_data, f, indent=4)
+    with open(OUTPUT_FILE, "w", encoding='utf-8') as f:
+        json.dump(recommendation_data, f, indent=4, ensure_ascii=False)
     
     print("\n" + "="*80)
-    print(f"Recommendations successfully saved to {OUTPUT_FILE}")
+    print(f" Recommendations successfully saved to {OUTPUT_FILE}")
     print("="*80 + "\n")
 
 if __name__ == "__main__":

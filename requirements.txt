@@ -1,4 +1,4 @@
-PyMuPDF
+python-dotenv
 google-genai
 requests
 beautifulsoup4
@@ -6,3 +6,4 @@ youtube-transcript-api
 sentence-transformers
 torch
 transformers
+PyMuPDF

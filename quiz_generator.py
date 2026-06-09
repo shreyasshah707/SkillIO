@@ -134,7 +134,7 @@ def create_weekly_quiz():
         print(f" Error: {INPUT_FILE} not found. Run recommendation_engine.py first.")
         return
 
-    with open(INPUT_FILE, "r") as f:
+    with open(INPUT_FILE, "r", encoding='utf-8') as f:
         data = json.load(f)
 
     learning_modules = data.get("learning_modules", [])
@@ -198,8 +198,8 @@ def create_weekly_quiz():
             print(f"   Q: {card['question']}")
             print(f"   A: {card['correct_answer']}\n")
 
-    with open(QUIZ_FILE, "w") as f:
-        json.dump(quiz_data, f, indent=4)
+    with open(QUIZ_FILE, "w", encoding='utf-8') as f:
+        json.dump(quiz_data, f, indent=4, ensure_ascii=False)
     
     print("="*75)
     print(f"Gemini RAG Quiz successfully saved to {QUIZ_FILE}")
