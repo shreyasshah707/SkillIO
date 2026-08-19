@@ -7,3 +7,11 @@ sentence-transformers
 torch
 transformers
 PyMuPDF
+fastapi 
+uvicorn[standard] 
+sqlalchemy 
+python-multipart 
+passlib[bcrypt] 
+python-jose[cryptography] 
+pydantic
+axios

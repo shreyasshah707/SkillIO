@@ -1,0 +1,11 @@
+export type Page = 'landing' | 'login' | 'signup' | 'onboarding' | 'dashboard'
+export type DashView =
+  | 'home'
+  | 'ask-vector'
+  | 'skill-analysis'
+  | 'roadmaps'
+  | 'projects'
+  | 'resume'
+  | 'interview'
+  | 'progress'
+  | 'settings'

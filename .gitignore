@@ -24,3 +24,7 @@ text.md
 *.docx
 *.pdf
 *.json
+
+venv/
+uploads/
+files/

@@ -9,7 +9,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from google import genai
 from google.genai import types
 
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,13 +16,11 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
-    raise ValueError(" GEMINI_API_KEY is missing! Check your .env file.")
+    raise ValueError("GEMINI_API_KEY is missing! Check your .env file.")
 
 INPUT_FILE = "recommendations.json"
 QUIZ_FILE = "weekly_quiz.json"
 TOTAL_QUESTIONS = 10  
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") 
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -55,20 +52,19 @@ def get_youtube_transcript(video_url):
 
 def generate_flashcard_batch(skill, freemium_resources, count):
     """Generates an array of questions based on the selected material."""
-    
     source_choice = random.choice(["video", "article"])
     context_text = None
     source_url = ""
 
     if source_choice == "video":
-        source_url = freemium_resources["youtube_video"]
+        source_url = freemium_resources.get("youtube_video", "")
         print(f"    [ Gemini is 'watching' the YouTube video for {skill} ({count} Qs)...]")
         context_text = get_youtube_transcript(source_url)
         if not context_text:
             source_choice = "article"
 
     if source_choice == "article":
-        source_url = freemium_resources["article"]
+        source_url = freemium_resources.get("article", "")
         print(f"    [Gemini is reading the Dev.to article for {skill} ({count} Qs)...]")
         context_text = scrape_article_text(source_url)
 
@@ -129,6 +125,64 @@ def generate_flashcard_batch(skill, freemium_resources, count):
         
     return generated_cards
 
+
+# ==========================================================
+# NEW: API-Friendly Non-Interactive Function for FastAPI
+# ==========================================================
+def generate_quiz(selected_skills=None):
+    """Generates a quiz automatically for FastAPI without requiring terminal input."""
+    if not os.path.exists(INPUT_FILE):
+        return {"error": f"{INPUT_FILE} not found. Run recommendation_engine.py first."}
+
+    with open(INPUT_FILE, "r", encoding='utf-8') as f:
+        data = json.load(f)
+
+    learning_modules = data.get("learning_modules", [])
+    if not learning_modules:
+        return {"error": "No skill gaps found to test!"}
+
+    # Filter skills if specific ones were requested, otherwise use ALL
+    if selected_skills:
+        selected_modules = [m for m in learning_modules if m.get("skill") in selected_skills]
+    else:
+        selected_modules = learning_modules
+
+    if not selected_modules:
+        selected_modules = learning_modules
+
+    base_count = TOTAL_QUESTIONS // len(selected_modules)
+    remainder = TOTAL_QUESTIONS % len(selected_modules)
+
+    quiz_data = {
+        "metadata": {
+            "quiz_date": datetime.now().strftime("%Y-%m-%d"),
+            "type": "Targeted Resource Knowledge Check",
+            "total_questions": TOTAL_QUESTIONS,
+            "skills_tested": [m["skill"] for m in selected_modules]
+        },
+        "flashcards": []
+    }
+
+    for idx, module in enumerate(selected_modules):
+        skill = module["skill"]
+        freemium_resources = module.get("freemium_resources", {})
+        q_count = base_count + (1 if idx < remainder else 0)
+        
+        if q_count == 0:
+            continue
+
+        batch = generate_flashcard_batch(skill, freemium_resources, q_count)
+        for card in batch:
+            quiz_data["flashcards"].append(card)
+
+    # Save to disk as well
+    with open(QUIZ_FILE, "w", encoding='utf-8') as f:
+        json.dump(quiz_data, f, indent=4, ensure_ascii=False)
+
+    return quiz_data
+
+
+# Interactive CLI wrapper (Kept for manual terminal runs)
 def create_weekly_quiz():
     if not os.path.exists(INPUT_FILE):
         print(f" Error: {INPUT_FILE} not found. Run recommendation_engine.py first.")
@@ -145,11 +199,8 @@ def create_weekly_quiz():
     print("\n" + "="*50)
     print(" SKILLIO WEEKLY QUIZ GENERATOR")
     print("="*50)
-    print("Which skill gaps would you like to be tested on today?")
-    
     for idx, module in enumerate(learning_modules):
         print(f"  [{idx + 1}] {module['skill']}")
-        
     print(f"  [0] ALL of the above")
     
     user_input = input("\nEnter the numbers of your choices (e.g., 1 or 1,3): ")
@@ -165,45 +216,9 @@ def create_weekly_quiz():
         print("Invalid selection. Exiting.")
         return
 
-    base_count = TOTAL_QUESTIONS // len(selected_modules)
-    remainder = TOTAL_QUESTIONS % len(selected_modules)
-
-    print(f"\n[PHASE 3] Generating {TOTAL_QUESTIONS} Context-Aware Questions via Gemini...")
-    print(" Building RAG Knowledge Base...\n")
-
-    quiz_data = {
-        "metadata": {
-            "quiz_date": datetime.now().strftime("%Y-%m-%d"),
-            "type": "Targeted Resource Knowledge Check",
-            "total_questions": TOTAL_QUESTIONS,
-            "skills_tested": [m["skill"] for m in selected_modules]
-        },
-        "flashcards": []
-    }
-
-    for idx, module in enumerate(selected_modules):
-        skill = module["skill"]
-        freemium_resources = module["freemium_resources"]
-    
-        q_count = base_count + (1 if idx < remainder else 0)
-        
-        if q_count == 0:
-            continue
-
-        print(f"Generating {q_count} question(s) for {skill.upper()}...")
-        batch = generate_flashcard_batch(skill, freemium_resources, q_count)
-        
-        for card in batch:
-            quiz_data["flashcards"].append(card)
-            print(f"   Q: {card['question']}")
-            print(f"   A: {card['correct_answer']}\n")
-
-    with open(QUIZ_FILE, "w", encoding='utf-8') as f:
-        json.dump(quiz_data, f, indent=4, ensure_ascii=False)
-    
-    print("="*75)
-    print(f"Gemini RAG Quiz successfully saved to {QUIZ_FILE}")
-    print("="*75)
+    selected_skills = [m["skill"] for m in selected_modules]
+    result = generate_quiz(selected_skills)
+    print("Quiz successfully created!")
 
 if __name__ == "__main__":
     create_weekly_quiz()
